@@ -30,7 +30,7 @@
 #define STR(x) #x
 
 #if defined(__clang__)
-#define COMPILEDBY  "[clang " XSTR(__clang_major__) "." XSTR(__clang_minor__) "." XSTR(__clang_patchlevel__) "]"
+#define COMPILEDBY  "[Clang " XSTR(__clang_major__) "." XSTR(__clang_minor__) "." XSTR(__clang_patchlevel__) "]"
 #ifdef __IA64__
 #define ONARCH    "[on 64-bit] "
 #else
@@ -66,12 +66,21 @@
 #elif  __CYGWIN__
 #define ONOS    "[Cygwin]"
 #elif __APPLE__
-#define ONOS    "[Mac OS X]"
+#define ONOS    "[macOS]"
+#if X86_64
+#define MAC_ARCH    "[Intel]"
+#elif defined(__aarch64__)
+#define MAC_ARCH    "[Apple Silicon]"
+#endif // MAC_ARCH end 
 #else
 #define ONOS    "[Unk-OS]"
 #endif
 
-#if X86_64
+#ifndef MAC_ARCH
+#define MAC_ARCH    ""
+#endif
+
+#if X86_64 || defined(__aarch64__)
 #define BITS    "[64 bit]"
 #else
 #define BITS    "[32 bit]"
@@ -129,4 +138,4 @@ const int PFX(max_bit_depth) = 8;
 #endif
 
 const char* PFX(version_str) = XSTR(X265_VERSION);
-const char* PFX(build_info_str) = ONOS COMPILEDBY BITS ASM ATOMICS CHECKED BITDEPTH ADD8 ADD10 ADD12;
+const char* PFX(build_info_str) = ONOS MAC_ARCH COMPILEDBY BITS ASM ATOMICS CHECKED BITDEPTH ADD8 ADD10 ADD12;
