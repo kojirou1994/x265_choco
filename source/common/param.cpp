@@ -572,6 +572,7 @@ int x265_param_default_preset(x265_param* param, const char* preset, const char*
         }
         else if (!strncmp(preset, "flyabc", 6))
         {
+            /* https://tieba.baidu.com/p/6627144750?see_lz=1 */
             param->keyframeMin = 5;
             param->scenecutThreshold = 50;
             param->bOpenGOP = false;
