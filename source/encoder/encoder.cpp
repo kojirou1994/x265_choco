@@ -3506,6 +3506,11 @@ void Encoder::configureZone(x265_param *p, x265_param *zone)
             p->rc.aqMode = X265_AQ_NONE;
             p->rc.hevcAq = 0;
         }
+        if (p->rc.aqMode == 0 && p->rc.cuTree)
+        {
+            p->rc.aqMode = X265_AQ_VARIANCE;
+            p->rc.aqStrength = 0;
+        }
         p->radl = zone->radl;
     }
     memcpy(zone, p, sizeof(x265_param));
@@ -4397,16 +4402,25 @@ void Encoder::configure(x265_param *p)
             m_param->searchRange = m_param->hmeRange[2];
     }
 
-    if (p->bEnableSBRC && p->bOpenGOP)
+    if (p->bEnableSBRC && (p->rc.rateControlMode != X265_RC_CRF || (p->rc.vbvBufferSize == 0 || p->rc.vbvMaxBitrate == 0)))
     {
-        x265_log(p, X265_LOG_WARNING, "Segment based RateControl requires closed gop structure. Enabling closed GOP.\n");
-        p->bOpenGOP = 0;
+        x265_log(p, X265_LOG_WARNING, "SBRC can be enabled only with CRF+VBV mode. Disabling SBRC\n");
+        p->bEnableSBRC = 0;
     }
 
-    if (p->bEnableSBRC && (p->keyframeMax != p->keyframeMin))
+    if (p->bEnableSBRC)
     {
-        x265_log(p, X265_LOG_WARNING, "Segment based RateControl requires fixed gop length. Force set min-keyint equal to keyint.\n");
-        p->keyframeMin = p->keyframeMax;
+        p->rc.ipFactor = p->rc.ipFactor * X265_IPRATIO_STRENGTH;
+        if (p->bOpenGOP)
+        {
+            x265_log(p, X265_LOG_WARNING, "Segment based RateControl requires closed gop structure. Enabling closed GOP.\n");
+            p->bOpenGOP = 0;
+        }
+        if (p->keyframeMax != p->keyframeMin)
+        {
+            x265_log(p, X265_LOG_WARNING, "Segment based RateControl requires fixed gop length. Force set min-keyint equal to keyint.\n");
+            p->keyframeMin = p->keyframeMax;
+        }
     }
 }
 
