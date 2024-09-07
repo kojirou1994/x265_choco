@@ -371,6 +371,11 @@ typedef enum
     MASTERING_DISPLAY_INFO               = 137,
     CONTENT_LIGHT_LEVEL_INFO             = 144,
     ALTERNATIVE_TRANSFER_CHARACTERISTICS = 147,
+    ALPHA_CHANNEL_INFO                   = 165,
+    THREE_DIMENSIONAL_REFERENCE_DISPLAYS_INFO = 176,
+    MULTIVIEW_SCENE_INFO                 = 178,
+    MULTIVIEW_ACQUISITION_INFO           = 179,
+    MULTIVIEW_VIEW_POSITION              = 180
 } SEIPayloadType;
 
 typedef struct x265_sei_payload
@@ -410,10 +415,10 @@ typedef struct x265_picture
 
     /* Must be specified on input pictures, the number of planes is determined
      * by the colorSpace value */
-    void*   planes[3];
+    void*   planes[4];
 
     /* Stride is the number of bytes between row starts */
-    int     stride[3];
+    int     stride[4];
 
     /* Must be specified on input pictures. x265_picture_init() will set it to
      * the encoder's internal bit depth, but this field must describe the depth
@@ -487,6 +492,9 @@ typedef struct x265_picture
     uint32_t picStruct;
 
     int    width;
+
+    int   layerID;
+    int    format;
 } x265_picture;
 
 typedef enum
@@ -536,11 +544,12 @@ typedef enum
 #define X265_CPU_SLOW_PALIGNR    (1 << 25)  /* such as on the AMD Bobcat */
 
 /* ARM */
-#define X265_CPU_ARMV6           0x0000001
-#define X265_CPU_NEON            0x0000002  /* ARM NEON */
-#define X265_CPU_SVE2            0x0000008  /* ARM SVE2 */
-#define X265_CPU_SVE             0x0000010  /* ARM SVE2 */
-#define X265_CPU_FAST_NEON_MRC   0x0000004  /* Transfer from NEON to ARM register is fast (Cortex-A9) */
+#define X265_CPU_ARMV6           (1 << 0)
+#define X265_CPU_NEON            (1 << 1)   /* ARM NEON */
+#define X265_CPU_FAST_NEON_MRC   (1 << 2)   /* Transfer from NEON to ARM register is fast (Cortex-A9) */
+#define X265_CPU_SVE2            (1 << 3)   /* AArch64 SVE2 */
+#define X265_CPU_SVE             (1 << 4)   /* AArch64 SVE2 */
+#define X265_CPU_NEON_DOTPROD    (1 << 5)   /* AArch64 Neon DotProd */
 
 /* IBM Power8 */
 #define X265_CPU_ALTIVEC         0x0000001
@@ -623,13 +632,49 @@ typedef enum
 #define X265_MAX_GOP_LENGTH 16
 #define MAX_T_LAYERS 7
 
+#if ENABLE_MULTIVIEW
+#define MAX_VIEWS 2
+#define MAX_VPS_NUM_SCALABILITY_TYPES     16
+#define MAX_VPS_LAYER_ID_PLUS1            MAX_VIEWS
+#define MULTIVIEW_SCALABILITY_IDX         1
+#else
+#define MAX_VIEWS 1
+#endif
+
+#if ENABLE_ALPHA
+#define MAX_SCALABLE_LAYERS     2
+#define MAX_VPS_NUM_SCALABILITY_TYPES     16
+#define MAX_VPS_LAYER_ID_PLUS1            MAX_SCALABLE_LAYERS
+#else
+#define MAX_SCALABLE_LAYERS     1
+#endif
+
+#if ENABLE_ALPHA || ENABLE_MULTIVIEW
+#define MAX_LAYERS              2
+#else
+#define MAX_LAYERS              1
+#endif
+
+#if ENABLE_SCC_EXT
+/* SCC Extension Options */
+#define SCC_EXT_IDX               3
+#define NUM_EXTENSION_FLAGS       8
+#define SCM_S0067_NUM_CANDIDATES  64
+#define CHROMA_REFINEMENT_CANDIDATES  8
+#define SCM_S0067_IBC_FULL_1D_SEARCH_FOR_PU  2 ///< Do full horizontal/vertical search for Nx2N
+#define SCM_S0067_MAX_CAND_SIZE  32 ///< 32 or 64, 16 by default
+#define NUM_RECON_VERSION          2
+#else
+#define NUM_RECON_VERSION          1
+#endif
+
 #define X265_IPRATIO_STRENGTH   1.43
 
 typedef struct x265_cli_csp
 {
     int planes;
-    int width[3];
-    int height[3];
+    int width[4];
+    int height[4];
 } x265_cli_csp;
 
 static const x265_cli_csp x265_cli_csps[] =
@@ -2268,6 +2313,20 @@ typedef struct x265_param
 
     /*SBRC*/
     int      bEnableSBRC;
+    int mcstfFrameRange;
+
+    /*Alpha channel encoding*/
+    int      bEnableAlpha;
+    int      numScalableLayers;
+
+    /*Multi View Encoding*/
+    int      numViews;
+    int      format;
+
+    int      numLayers;
+
+    /*Screen Content Coding*/
+    int     bEnableSCC;
 } x265_param;
 
 /* x265_param_alloc:
@@ -2320,6 +2379,10 @@ static const char * const x265_profile_names[] = {
     "main444-12", "main444-12-intra",
 
     "main444-16-intra", "main444-16-stillpicture", /* Not Supported! */
+
+#if ENABLE_SCC_EXT
+    "main-scc", "main10-scc", "main444-scc", "main444-10-scc", /* Screen content coding */
+#endif
     0
 };
 
@@ -2430,7 +2493,7 @@ int x265_encoder_headers(x265_encoder *, x265_nal **pp_nal, uint32_t *pi_nal);
  *      the payloads of all output NALs are guaranteed to be sequential in memory.
  *      To flush the encoder and retrieve delayed output pictures, pass pic_in as NULL.
  *      Once flushing has begun, all subsequent calls must pass pic_in as NULL. */
-int x265_encoder_encode(x265_encoder *encoder, x265_nal **pp_nal, uint32_t *pi_nal, x265_picture *pic_in, x265_picture *pic_out);
+int x265_encoder_encode(x265_encoder *encoder, x265_nal **pp_nal, uint32_t *pi_nal, x265_picture *pic_in, x265_picture **pic_out);
 
 /* x265_encoder_reconfig:
  *      various parameters from x265_param are copied.
@@ -2584,7 +2647,7 @@ typedef struct x265_api
     int           (*encoder_reconfig)(x265_encoder*, x265_param*);
     int           (*encoder_reconfig_zone)(x265_encoder*, x265_zone*);
     int           (*encoder_headers)(x265_encoder*, x265_nal**, uint32_t*);
-    int           (*encoder_encode)(x265_encoder*, x265_nal**, uint32_t*, x265_picture*, x265_picture*);
+    int           (*encoder_encode)(x265_encoder*, x265_nal**, uint32_t*, x265_picture*, x265_picture**);
     void          (*encoder_get_stats)(x265_encoder*, x265_stats*, uint32_t);
     void          (*encoder_log)(x265_encoder*, int, char**);
     void          (*encoder_close)(x265_encoder*);
